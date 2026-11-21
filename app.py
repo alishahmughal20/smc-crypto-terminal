@@ -476,7 +476,7 @@ def analyze_market(
                 "sl": signal["sl"],
                 "tp1": signal["tp1"],
                 "headline": "🟢 LOCKED BUY (LONG) ON " + symbol + " AT $" + f"{signal['entry']:,.2f}",
-                "detail": "Confirmed Sweep + Bullish FVG! Profit Booking: $" + f"{signal['tp1']:,.2f}" + " (TP1) / $" + f"{signal['tp2']:,.2f}" + " (TP2) \vert{} SL: $" + f"{signal['sl']:,.2f}",
+                "detail": "Confirmed Sweep + Bullish FVG! Profit Booking: $" + f"{signal['tp1']:,.2f}" + " (TP1) / $" + f"{signal['tp2']:,.2f}" + " (TP2) | SL: $" + f"{signal['sl']:,.2f}",
                 "created_at": now_ts
             }
             st.session_state.locked_decisions[symbol] = decision
@@ -487,7 +487,7 @@ def analyze_market(
                 "sl": signal["sl"],
                 "tp1": signal["tp1"],
                 "headline": "🔴 LOCKED SELL (SHORT) ON " + symbol + " AT $" + f"{signal['entry']:,.2f}",
-                "detail": "Confirmed Sweep + Bearish FVG! Profit Booking: $" + f"{signal['tp1']:,.2f}" + " (TP1) / $" + f"{signal['tp2']:,.2f}" + " (TP2) \vert{} SL: $" + f"{signal['sl']:,.2f}",
+                "detail": "Confirmed Sweep + Bearish FVG! Profit Booking: $" + f"{signal['tp1']:,.2f}" + " (TP1) / $" + f"{signal['tp2']:,.2f}" + " (TP2) | SL: $" + f"{signal['sl']:,.2f}",
                 "created_at": now_ts
             }
             st.session_state.locked_decisions[symbol] = decision
@@ -498,7 +498,7 @@ def analyze_market(
                 "sl": buy_sl,
                 "tp1": buy_tp1,
                 "headline": "🟢 LOCKED BUY LIMIT ON " + symbol + " AT $" + f"{buy_entry:,.2f}",
-                "detail": "Bullish Discount Zone (" + buy_source + "). Profit Booking: $" + f"{buy_tp1:,.2f}" + " / $" + f"{buy_tp2:,.2f}" + " \vert{} SL: $" + f"{buy_sl:,.2f}",
+                "detail": "Bullish Discount Zone (" + buy_source + "). Profit Booking: $" + f"{buy_tp1:,.2f}" + " / $" + f"{buy_tp2:,.2f}" + " | SL: $" + f"{buy_sl:,.2f}",
                 "created_at": now_ts
             }
             st.session_state.locked_decisions[symbol] = decision
@@ -522,7 +522,7 @@ def analyze_market(
                 "sl": sell_sl,
                 "tp1": sell_tp1,
                 "headline": "🔴 LOCKED SELL LIMIT ON " + symbol + " AT $" + f"{sell_entry:,.2f}",
-                "detail": "Bearish Premium Zone (" + sell_source + "). Profit Booking: $" + f"{sell_tp1:,.2f}" + " / $" + f"{sell_tp2:,.2f}" + " \vert{} SL: $" + f"{sell_sl:,.2f}",
+                "detail": "Bearish Premium Zone (" + sell_source + "). Profit Booking: $" + f"{sell_tp1:,.2f}" + " / $" + f"{sell_tp2:,.2f}" + " | SL: $" + f"{sell_sl:,.2f}",
                 "created_at": now_ts
             }
             st.session_state.locked_decisions[symbol] = decision
@@ -625,4 +625,127 @@ def render_live_dashboard():
                 existing_ids = [s["id"] for s in st.session_state.signal_history]
                 if asset["signal"]["id"] not in existing_ids:
                     st.session_state.signal_history.insert(0, asset["signal"])
-        active_data = btc_data if selected_pair == "BTC/USDC" else
+
+        active_data = btc_data if selected_pair == "BTC/USDC" else eth_data
+        f = active_data["fund"]
+        tp = active_data["trade_plan"]
+        dec = active_data["decision"]
+
+        # TOP LIVE DECISION BANNER (STICKY LOCKED)
+        banner_text = "### " + dec["headline"] + "\n**Execution Plan:** " + dec["detail"]
+        if dec["type"] == "BUY":
+            st.success(banner_text)
+        elif dec["type"] in ["SELL", "PAUSE"]:
+            st.error(banner_text)
+        else:
+            st.warning(banner_text)
+
+        # Row 1: Price & Macro Sentiment KPIs
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("BTC/USDC Price", "$" + f"{btc_data['price']:,.2f}", btc_data["bias"])
+        col2.metric("ETH/USDC Price", "$" + f"{eth_data['price']:,.2f}", eth_data["bias"])
+        col3.metric("Fear & Greed Index", str(f["fng_value"]) + " / 100", f["fng_label"])
+        col4.metric("News Gate Status", news_data["status"], "Last scan: " + datetime.now().strftime("%H:%M:%S"))
+
+        # Row 2: Live Intraday Fundamental Metrics
+        st.markdown("#### 🏛️ Live Fundamental & Derivatives Flow (" + selected_pair + ")")
+        fcol1, fcol2, fcol3, fcol4 = st.columns(4)
+        fcol1.metric("Fundamental Score", str(f["fund_score"]) + " / 100", "Institutional Confluence")
+        fcol2.metric("24h Market Momentum", f"{f['oi_change_pct']:+}%", "Capital Inflow / Outflow")
+        fcol3.metric("Long / Short Bias", str(f["long_pct"]) + "% L / " + str(f["short_pct"]) + "% S", "Positioning Crowding")
+        fcol4.metric("Perpetual Funding (8h)", str(f["funding_rate"]) + "%", "Leverage Bias")
+
+        # Row 3: LIVE ENTRY & PROFIT BOOKING LEVELS
+        st.markdown("#### 🎯 Live Entry & Profit Booking Levels (" + selected_pair + ")")
+        buy_box, sell_box = st.columns(2)
+
+        with buy_box:
+            st.success(
+                "**🟢 BUY (LONG) SETUP** — *" + tp["buy_source"] + "*\n\n"
+                + "- **Buying Entry Position Price:** `$" + f"{tp['buy_entry']:,.2f}" + "`\n"
+                + "- **Profit Booking Price (Target 1 — 2R):** `$" + f"{tp['buy_tp1']:,.2f}" + "`\n"
+                + "- **Profit Booking Price (Target 2 — Swing High):** `$" + f"{tp['buy_tp2']:,.2f}" + "`\n"
+                + "- **Stop-Loss Exit (Invalidation):** `$" + f"{tp['buy_sl']:,.2f}" + "`"
+            )
+
+        with sell_box:
+            st.error(
+                "**🔴 SELL (SHORT) SETUP** — *" + tp["sell_source"] + "*\n\n"
+                + "- **Selling Entry Position Price:** `$" + f"{tp['sell_entry']:,.2f}" + "`\n"
+                + "- **Selling Exit / Profit Booking (Target 1 — 2R):** `$" + f"{tp['sell_tp1']:,.2f}" + "`\n"
+                + "- **Selling Exit / Profit Booking (Target 2 — Swing Low):** `$" + f"{tp['sell_tp2']:,.2f}" + "`\n"
+                + "- **Stop-Loss Exit (Invalidation):** `$" + f"{tp['sell_sl']:,.2f}" + "`"
+            )
+
+        # News & Scanner Gate Banner
+        st.info(
+            "📰 **AI News Filter:** " + news_data["summary"]
+            + "  |  **Auto-Alert Gate (" + selected_pair + "):** " + active_data["filter_status"]
+        )
+
+        # Active Chart + FVG + Entry/Exit Visualizer
+        df_plot = active_data["df_ltf"].iloc[-60:]
+
+        fig = go.Figure(data=[go.Candlestick(
+            x=df_plot["timestamp"],
+            open=df_plot["open"],
+            high=df_plot["high"],
+            low=df_plot["low"],
+            close=df_plot["close"],
+            name=selected_pair
+        )])
+
+        for fvg in active_data["fvgs"]:
+            if fvg["start_time"] >= df_plot["timestamp"].iloc[0]:
+                is_bull = fvg["type"] == "BULLISH"
+                fill_c = "rgba(0, 200, 83, 0.22)" if is_bull else "rgba(255, 82, 82, 0.22)"
+                line_c = "green" if is_bull else "red"
+                fig.add_shape(
+                    type="rect",
+                    x0=fvg["start_time"],
+                    x1=fvg["end_time"],
+                    y0=fvg["bottom"],
+                    y1=fvg["top"],
+                    fillcolor=fill_c,
+                    line=dict(color=line_c, width=1, dash="dot"),
+                )
+
+        fig.add_hline(y=tp["buy_entry"], line_dash="solid", line_color="#00E676", annotation_text="Buy Entry")
+        fig.add_hline(y=tp["buy_tp1"], line_dash="dot", line_color="#69F0AE", annotation_text="Buy Profit Exit")
+        fig.add_hline(y=tp["sell_entry"], line_dash="solid", line_color="#FF5252", annotation_text="Sell Entry")
+        fig.add_hline(y=tp["sell_tp1"], line_dash="dot", line_color="#FF8A80", annotation_text="Sell Profit Exit")
+        fig.add_hline(y=active_data["equilibrium"], line_dash="dash", line_color="orange", annotation_text="1H Equilibrium")
+
+        fig.update_layout(
+            title=selected_pair + " — 5m Execution Chart (Entry, Profit Booking & Fair Value Gaps)",
+            xaxis_rangeslider_visible=False,
+            height=540,
+            template="plotly_dark"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        left_col, right_col = st.columns([1.3, 1])
+
+        with left_col:
+            st.subheader("📲 Sent Telegram Alerts Log")
+            if st.session_state.signal_history:
+                cols = ["time", "symbol", "action", "entry", "sl", "tp1", "tp2", "fund_score"]
+                st.dataframe(pd.DataFrame(st.session_state.signal_history)[cols], use_container_width=True)
+            else:
+                st.write("Alerts fire automatically to Telegram whenever a Locked Limit Setup or Confirmed Sweep triggers.")
+
+        with right_col:
+            st.subheader("🗞️ Live Crypto Headlines")
+            for h in news_data["headlines"]:
+                st.markdown("- " + h)
+
+    except Exception as e:
+        st.error("⚠️ Exchange Data Error (" + exchange_id + "): " + str(e))
+        st.info("Tip: Select 'kraken' or 'coinbase' in the Spot Execution Exchange dropdown on the left.")
+
+
+render_live_dashboard()
+
+if auto_refresh:
+    time.sleep(60)
+    st.rerun()
