@@ -94,7 +94,7 @@ def fetch_candles(symbol: str, timeframe: str, limit: int = 100) -> pd.DataFrame
 
 @st.cache_data(ttl=60)
 def get_deep_fundamentals(symbol: str) -> dict:
-    base = symbol.split("/")[0]  # 'BTC' or 'ETH'
+    base = symbol.split("/")[0]
     perp_symbol = f"{base}/USD:USD"
     
     funding_rate = 0.0
@@ -103,7 +103,6 @@ def get_deep_fundamentals(symbol: str) -> dict:
     fng_value = 50
     fng_label = "Neutral"
 
-    # 1. Kraken Futures Funding Rate & Crowding Estimation
     try:
         ticker = perp_ex.fetch_ticker(perp_symbol)
         info = ticker.get("info", {})
@@ -113,7 +112,6 @@ def get_deep_fundamentals(symbol: str) -> dict:
     except Exception:
         pass
 
-    # 2. CoinGecko 24h Momentum Flow
     try:
         cg_id = "bitcoin" if base == "BTC" else "ethereum"
         cg_url = f"https://api.coingecko.com/api/v3/simple/price?ids={cg_id}&vs_currencies=usd&include_24hr_change=true"
@@ -123,7 +121,6 @@ def get_deep_fundamentals(symbol: str) -> dict:
     except Exception:
         pass
 
-    # 3. Macro Crypto Fear & Greed Index
     try:
         fng_resp = requests.get("https://api.alternative.me/fng/?limit=1", timeout=5).json()
         if fng_resp.get("data"):
@@ -193,6 +190,7 @@ def fetch_news_and_sentiment(gem_key: str) -> dict:
             summary = f"AI check skipped ({e})"
 
     return {"status": status, "headlines": headlines, "summary": summary}
+
 # ==========================================
 # 3. COMBINED SMC + FVG + FUNDAMENTAL ENGINE
 # ==========================================
@@ -207,6 +205,7 @@ def analyze_market(symbol: str, rr_ratio: float, news_status: str, req_vol: bool
     swing_low = recent_htf["low"].min()
     equilibrium = (swing_high + swing_low) / 2
     curr_price = df_ltf["close"].iloc[-1]
+    curr_atr = df_ltf["atr"].iloc[-1] if not np.isnan(df_ltf["atr"].iloc[-1]) else curr_price * 0.002
     range_pct = round(((curr_price - swing_low) / (swing_high - swing_low)) * 100, 1)
     ema_50 = df_htf["close"].ewm(span=50, adjust=False).mean().iloc[-1]
 
@@ -217,9 +216,9 @@ def analyze_market(symbol: str, rr_ratio: float, news_status: str, req_vol: bool
     else:
         bias = "NEUTRAL (Wait for Pullback)"
 
-    # Detect 5m Fair Value Gaps (FVGs)
+    # Detect 5m Fair Value Gaps (FVGs) across last 30 candles
     fvgs = []
-    for i in range(len(df_ltf) - 15, len(df_ltf) - 1):
+    for i in range(len(df_ltf) - 30, len(df_ltf) - 1):
         c_prev2 = df_ltf.iloc[i - 2]
         c_curr = df_ltf.iloc[i]
         
@@ -228,8 +227,8 @@ def analyze_market(symbol: str, rr_ratio: float, news_status: str, req_vol: bool
                 "type": "BULLISH",
                 "start_time": c_prev2["timestamp"],
                 "end_time": df_ltf["timestamp"].iloc[-1],
-                "bottom": c_prev2["high"],
-                "top": c_curr["low"],
+                "bottom": round(c_prev2["high"], 2),
+                "top": round(c_curr["low"], 2),
                 "mid": round((c_curr["low"] + c_prev2["high"]) / 2, 2),
                 "index": i
             })
@@ -238,12 +237,57 @@ def analyze_market(symbol: str, rr_ratio: float, news_status: str, req_vol: bool
                 "type": "BEARISH",
                 "start_time": c_prev2["timestamp"],
                 "end_time": df_ltf["timestamp"].iloc[-1],
-                "bottom": c_curr["high"],
-                "top": c_prev2["low"],
+                "bottom": round(c_curr["high"], 2),
+                "top": round(c_prev2["low"], 2),
                 "mid": round((c_prev2["low"] + c_curr["high"]) / 2, 2),
                 "index": i
             })
 
+    # Always compute active BUY & SELL Limit Plans from nearest FVG or 1H Discount/Premium zone
+    bull_fvgs = [g for g in fvgs if g["type"] == "BULLISH" and g["mid"] <= curr_price]
+    if bull_fvgs:
+        b_zone = bull_fvgs[-1]
+        buy_entry = b_zone["mid"]
+        buy_sl = round(b_zone["bottom"] - 0.5 * curr_atr, 2)
+        buy_source = f"5m Bullish FVG (${b_zone['bottom']:,.2f}–${b_zone['top']:,.2f})"
+    else:
+        buy_entry = round(swing_low + 0.25 * (swing_high - swing_low), 2)
+        buy_sl = round(swing_low - 0.5 * curr_atr, 2)
+        buy_source = "1H Discount Order Block (25% Fib)"
+
+    buy_risk = max(buy_entry - buy_sl, curr_atr * 0.5)
+    buy_tp1 = round(buy_entry + buy_risk * 2.0, 2)
+    buy_tp2 = round(max(buy_entry + buy_risk * rr_ratio, swing_high), 2)
+
+    bear_fvgs = [g for g in fvgs if g["type"] == "BEARISH" and g["mid"] >= curr_price]
+    if bear_fvgs:
+        s_zone = bear_fvgs[-1]
+        sell_entry = s_zone["mid"]
+        sell_sl = round(s_zone["top"] + 0.5 * curr_atr, 2)
+        sell_source = f"5m Bearish FVG (${s_zone['bottom']:,.2f}–${s_zone['top']:,.2f})"
+    else:
+        sell_entry = round(swing_high - 0.25 * (swing_high - swing_low), 2)
+        sell_sl = round(swing_high + 0.5 * curr_atr, 2)
+        sell_source = "1H Premium Supply Zone (75% Fib)"
+
+    sell_risk = max(sell_sl - sell_entry, curr_atr * 0.5)
+    sell_tp1 = round(sell_entry - sell_risk * 2.0, 2)
+    sell_tp2 = round(min(sell_entry - sell_risk * rr_ratio, swing_low), 2)
+
+    trade_plan = {
+        "buy_entry": buy_entry,
+        "buy_sl": buy_sl,
+        "buy_tp1": buy_tp1,
+        "buy_tp2": buy_tp2,
+        "buy_source": buy_source,
+        "sell_entry": sell_entry,
+        "sell_sl": sell_sl,
+        "sell_tp1": sell_tp1,
+        "sell_tp2": sell_tp2,
+        "sell_source": sell_source,
+    }
+
+    # Automated Telegram Trigger when a fresh 5m Sweep + FVG confirms
     signal = None
     filter_status = "Waiting for 5m Sweep + FVG pattern"
 
@@ -322,6 +366,7 @@ def analyze_market(symbol: str, rr_ratio: float, news_status: str, req_vol: bool
         "equilibrium": round(equilibrium, 2),
         "fund": fund,
         "fvgs": fvgs,
+        "trade_plan": trade_plan,
         "signal": signal,
         "filter_status": filter_status
     }
@@ -337,10 +382,10 @@ def dispatch_telegram_signal(sig: dict, bot_token: str, chat_id: str):
     msg = (
         f"{emoji} *SMC + FUNDAMENTAL SIGNAL: {sig['symbol']}*\n"
         f"*Direction:* {sig['action']}\n"
-        f"*Limit Entry (50% FVG):* `${sig['entry']:,.2f}`\n"
+        f"*Entry Position Price:* `${sig['entry']:,.2f}`\n"
         f"*Stop-Loss (SL):* `${sig['sl']:,.2f}`\n"
-        f"*Take-Profit 1 (2R):* `${sig['tp1']:,.2f}`\n"
-        f"*Take-Profit 2 (Liquidity):* `${sig['tp2']:,.2f}`\n"
+        f"*Profit Booking 1 (2R):* `${sig['tp1']:,.2f}`\n"
+        f"*Profit Booking 2 (Liquidity):* `${sig['tp2']:,.2f}`\n"
         f"*FVG Zone:* `{sig['fvg']}`\n"
         f"*Fundamentals:* `{sig['fund_score']}`"
     )
@@ -371,6 +416,7 @@ def render_live_dashboard():
 
         active_data = btc_data if selected_pair == "BTC/USDC" else eth_data
         f = active_data["fund"]
+        tp = active_data["trade_plan"]
 
         # Row 1: Price & Macro Sentiment KPIs
         col1, col2, col3, col4 = st.columns(4)
@@ -379,7 +425,7 @@ def render_live_dashboard():
         col3.metric("Fear & Greed Index", f"{f['fng_value']} / 100", f["fng_label"])
         col4.metric("News Gate Status", news_data["status"], f"Last scan: {datetime.now().strftime('%H:%M:%S')}")
 
-        # Row 2: Live Intraday Fundamental Metrics for Selected Pair
+        # Row 2: Live Intraday Fundamental Metrics
         st.markdown(f"#### 🏛️ Live Fundamental & Derivatives Flow ({selected_pair})")
         fcol1, fcol2, fcol3, fcol4 = st.columns(4)
         fcol1.metric("Fundamental Score", f"{f['fund_score']} / 100", "Institutional Confluence")
@@ -387,13 +433,35 @@ def render_live_dashboard():
         fcol3.metric("Long / Short Bias", f"{f['long_pct']}% L / {f['short_pct']}% S", "Positioning Crowding")
         fcol4.metric("Perpetual Funding Rate", f"{f['funding_rate']}%", "Leverage Bias")
 
+        # Row 3: LIVE ENTRY & PROFIT BOOKING LEVELS (BUY & SELL)
+        st.markdown(f"#### 🎯 Live Entry & Profit Booking Levels ({selected_pair})")
+        buy_box, sell_box = st.columns(2)
+
+        with buy_box:
+            st.success(
+                f"**🟢 BUY (LONG) SETUP** — *{tp['buy_source']}*\n\n"
+                f"- **Buying Entry Position Price:** `${tp['buy_entry']:,.2f}`\n"
+                f"- **Profit Booking Price (Target 1 — 2R):** `${tp['buy_tp1']:,.2f}`\n"
+                f"- **Profit Booking Price (Target 2 — Swing High):** `${tp['buy_tp2']:,.2f}`\n"
+                f"- **Stop-Loss Exit (Invalidation):** `${tp['buy_sl']:,.2f}`"
+            )
+
+        with sell_box:
+            st.error(
+                f"**🔴 SELL (SHORT) SETUP** — *{tp['sell_source']}*\n\n"
+                f"- **Selling Entry Position Price:** `${tp['sell_entry']:,.2f}`\n"
+                f"- **Selling Exit / Profit Booking (Target 1 — 2R):** `${tp['sell_tp1']:,.2f}`\n"
+                f"- **Selling Exit / Profit Booking (Target 2 — Swing Low):** `${tp['sell_tp2']:,.2f}`\n"
+                f"- **Stop-Loss Exit (Invalidation):** `${tp['sell_sl']:,.2f}`"
+            )
+
         # News & Scanner Gate Banner
         if news_data["status"] == "HIGH_IMPACT_PAUSE":
             st.error(f"🚨 **TRADING PAUSED — HIGH-IMPACT NEWS DETECTED:** {news_data['summary']}")
         else:
-            st.info(f"📰 **AI News Filter:** {news_data['summary']}  |  **Engine Gate ({selected_pair}):** {active_data['filter_status']}")
+            st.info(f"📰 **AI News Filter:** {news_data['summary']}  |  **Auto-Alert Gate ({selected_pair}):** {active_data['filter_status']}")
 
-        # Active Chart + FVG Visualizer
+        # Active Chart + FVG + Entry/Exit Visualizer
         df_plot = active_data["df_ltf"].iloc[-60:]
 
         fig = go.Figure(data=[go.Candlestick(
@@ -417,17 +485,17 @@ def render_live_dashboard():
                     line=dict(color=line_color, width=1, dash="dot"),
                 )
 
-        fig.add_hline(
-            y=active_data["equilibrium"],
-            line_dash="dash",
-            line_color="orange",
-            annotation_text=f"1H Equilibrium (${active_data['equilibrium']:,.2f})"
-        )
+        # Plot Buy & Sell Entry/Exit Lines on Chart
+        fig.add_hline(y=tp["buy_entry"], line_dash="solid", line_color="#00E676", annotation_text=f"Buy Entry (${tp['buy_entry']:,.2f})")
+        fig.add_hline(y=tp["buy_tp1"], line_dash="dot", line_color="#69F0AE", annotation_text=f"Buy Profit Exit (${tp['buy_tp1']:,.2f})")
+        fig.add_hline(y=tp["sell_entry"], line_dash="solid", line_color="#FF5252", annotation_text=f"Sell Entry (${tp['sell_entry']:,.2f})")
+        fig.add_hline(y=tp["sell_tp1"], line_dash="dot", line_color="#FF8A80", annotation_text=f"Sell Profit Exit (${tp['sell_tp1']:,.2f})")
+        fig.add_hline(y=active_data["equilibrium"], line_dash="dash", line_color="orange", annotation_text=f"1H Equilibrium (${active_data['equilibrium']:,.2f})")
 
         fig.update_layout(
-            title=f"{selected_pair} — 5m Execution Chart (Fair Value Gaps + 1H Equilibrium)",
+            title=f"{selected_pair} — 5m Execution Chart (Entry, Profit Booking & Fair Value Gaps)",
             xaxis_rangeslider_visible=False,
-            height=500,
+            height=540,
             template="plotly_dark"
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -435,13 +503,13 @@ def render_live_dashboard():
         left_col, right_col = st.columns([1.3, 1])
 
         with left_col:
-            st.subheader("🎯 Actionable Buy / Sell Signals")
+            st.subheader("📲 Confirmed Telegram Signal Log")
             if st.session_state.signal_history:
                 st.dataframe(pd.DataFrame(st.session_state.signal_history)[
                     ["time", "symbol", "action", "entry", "sl", "tp1", "tp2", "fund_score"]
                 ], use_container_width=True)
             else:
-                st.write("Scanning 5m liquidity sweeps, Fair Value Gaps, and market flow...")
+                st.write("Use the Buy/Sell Entry & Profit Booking boxes above for live limit orders; confirmed sweep alerts also log here and fire to Telegram.")
 
         with right_col:
             st.subheader("🗞️ Live Crypto Headlines")
@@ -452,7 +520,6 @@ def render_live_dashboard():
         st.error(f"⚠️ Exchange Data Error ({exchange_id}): {e}")
         st.info("Tip: Select 'kraken' or 'coinbase' in the Spot Execution Exchange dropdown on the left.")
 
-# Top-level fragment definition (never wrapped in an if-block)
 @st.fragment(run_every="60s" if auto_refresh else None)
 def auto_scanning_panel():
     render_live_dashboard()
