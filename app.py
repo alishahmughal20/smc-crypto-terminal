@@ -106,7 +106,7 @@ def get_deep_fundamentals(symbol: str) -> dict:
     try:
         ticker = perp_ex.fetch_ticker(perp_symbol)
         info = ticker.get("info", {})
-        funding_rate = round(float(info.get("fundingRate", 0.0)) * 100, 4)
+        raw_fr = float(info.get("fundingRate", 0.0)) funding_rate = round(raw_fr if abs(raw_fr) > 0.5 else raw_fr * 100, 4)
         long_pct = round(min(max(50.0 + (funding_rate * 400), 25.0), 75.0), 1)
     except Exception:
         pass
@@ -175,7 +175,7 @@ def fetch_news_and_sentiment(gem_key: str) -> dict:
                 "emergency regulatory ban, or sudden market crash. Otherwise reply 'SAFE' followed by a 1-sentence market mood summary.\n\n"
                 "Headlines:\n" + "\n".join(f"- {h}" for h in headlines)
             )
-            ai_resp = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+            ai_resp = client.models.generate_content(model="gemini-3.8-flash", contents=prompt)
             text = ai_resp.text.strip()
             if "HIGH_IMPACT_PAUSE" in text:
                 status = "HIGH_IMPACT_PAUSE"
