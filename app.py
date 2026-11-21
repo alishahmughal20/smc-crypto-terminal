@@ -58,8 +58,7 @@ if st.sidebar.button("Send Test Telegram Alert"):
         url = f"https://api.telegram.org/bot{tg_bot_token}/sendMessage"
         res = requests.post(url, json={
             "chat_id": tg_chat_id,
-            "text": "✅ *Institutional SMC + Fundamental Scanner Connected!*\nMonitoring BTC/USDC & ETH/USDC.",
-            "parse_mode": "Markdown"
+            "text": "✅ Institutional SMC + Fundamental Scanner Connected! Monitoring BTC/USDC & ETH/USDC.",
         }, timeout=6)
         if res.status_code == 200:
             st.sidebar.success("Test message sent to Telegram!")
@@ -114,55 +113,4 @@ def get_deep_fundamentals(symbol: str) -> dict:
 
     try:
         cg_id = "bitcoin" if base == "BTC" else "ethereum"
-        cg_url = f"https://api.coingecko.com/api/v3/simple/price?ids={cg_id}&vs_currencies=usd&include_24hr_change=true"
-        cg_resp = requests.get(cg_url, timeout=5).json()
-        if cg_id in cg_resp:
-            oi_change_pct = round(float(cg_resp[cg_id].get("usd_24h_change", 0.0)), 2)
-    except Exception:
-        pass
-
-    try:
-        fng_resp = requests.get("https://api.alternative.me/fng/?limit=1", timeout=5).json()
-        if fng_resp.get("data"):
-            fng_value = int(fng_resp["data"][0]["value"])
-            fng_label = fng_resp["data"][0]["value_classification"]
-    except Exception:
-        pass
-
-    score = 50
-    if abs(oi_change_pct) > 0.5:
-        score += 15
-    if abs(funding_rate) < 0.05:
-        score += 20
-    if 38 <= long_pct <= 62:
-        score += 15
-
-    return {
-        "funding_rate": funding_rate,
-        "oi_change_pct": oi_change_pct,
-        "long_pct": long_pct,
-        "short_pct": round(100 - long_pct, 1),
-        "fng_value": fng_value,
-        "fng_label": fng_label,
-        "fund_score": min(max(score, 0), 100)
-    }
-
-# ==========================================
-# 2. FREE LIVE RSS NEWS & AI SENTIMENT FILTER
-# ==========================================
-@st.cache_data(ttl=180)
-def fetch_news_and_sentiment(gem_key: str) -> dict:
-    headlines = []
-    status = "SAFE"
-    summary = "Normal market conditions. No black-swan macro alerts."
-
-    try:
-        rss_url = "https://cointelegraph.com/rss"
-        resp = requests.get(rss_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        root = ET.fromstring(resp.content)
-        for item in root.findall(".//item")[:6]:
-            title = item.find("title")
-            if title is not None and title.text:
-                headlines.append(title.text.strip())
-    except Exception as e:
-        headlines = ["RSS feed temporarily unavailable"]
+        cg_url = f"
