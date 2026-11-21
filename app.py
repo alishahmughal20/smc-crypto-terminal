@@ -161,7 +161,7 @@ def fetch_news_and_sentiment(gem_key: str) -> dict:
 
     try:
         rss_url = "https://cointelegraph.com/rss"
-        resp = requests.get(rss_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
+        resp = requests.get(rss_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
         root = ET.fromstring(resp.content)
         for item in root.findall(".//item")[:6]:
             title = item.find("title")
@@ -172,23 +172,27 @@ def fetch_news_and_sentiment(gem_key: str) -> dict:
 
     if gem_key and GEMINI_AVAILABLE and headlines:
         try:
-            client = genai.Client(api_key=gem_key)
+            client = genai.Client(api_key=gem_key, http_options={"timeout": 5000})
             prompt = (
                 "Analyze these live crypto headlines for an intraday BTC/ETH trader. "
                 "Reply with 'HIGH_IMPACT_PAUSE' followed by a 1-sentence reason ONLY if there is a major exchange hack, "
                 "emergency regulatory ban, or sudden market crash. Otherwise reply 'SAFE' followed by a 1-sentence market mood summary.\n\n"
                 "Headlines:\n" + "\n".join(f"- {h}" for h in headlines)
             )
-            ai_resp = client.models.generate_content(model="gemini-3.8-flash", contents=prompt)
-            text = ai_resp.text.strip()
-            if "HIGH_IMPACT_PAUSE" in text:
-                status = "HIGH_IMPACT_PAUSE"
-            summary = text.replace("HIGH_IMPACT_PAUSE", "").replace("SAFE", "").strip(" :-")
+            for model_name in ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"]:
+                try:
+                    ai_resp = client.models.generate_content(model=model_name, contents=prompt)
+                    text = ai_resp.text.strip()
+                    if "HIGH_IMPACT_PAUSE" in text:
+                        status = "HIGH_IMPACT_PAUSE"
+                    summary = text.replace("HIGH_IMPACT_PAUSE", "").replace("SAFE", "").strip(" :-")
+                    break
+                except Exception:
+                    continue
         except Exception as e:
             summary = f"AI check skipped ({e})"
 
     return {"status": status, "headlines": headlines, "summary": summary}
-
 # ==========================================
 # 3. COMBINED SMC + FVG + FUNDAMENTAL ENGINE
 # ==========================================
