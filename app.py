@@ -625,5 +625,4 @@ def render_live_dashboard():
                 existing_ids = [s["id"] for s in st.session_state.signal_history]
                 if asset["signal"]["id"] not in existing_ids:
                     st.session_state.signal_history.insert(0, asset["signal"])
-
         active_data = btc_data if selected_pair == "BTC/USDC" else
