@@ -165,4 +165,4 @@ def fetch_news_and_sentiment(gem_key: str) -> dict:
             if title is not None and title.text:
                 headlines.append(title.text.strip())
     except Exception as e:
-        headlines = [f"RSS feed temporarily unavailable:
+        headlines = [f"RSS feed temporarily unavailable:]
