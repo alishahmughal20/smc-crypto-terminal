@@ -240,7 +240,7 @@ def fetch_news_and_sentiment(gem_key: str) -> dict:
                 "SAFE and a 1-sentence market mood summary.\n\n"
                 + "\n".join("- " + h for h in headlines)
             )
-            models = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
+            models = ["gemini-2.5-flash", "gemini-2.0-flash"]
             for m_name in models:
                 try:
                     ai_resp = client.models.generate_content(
@@ -287,7 +287,6 @@ def analyze_market(
     range_pct = round(((closed_price - swing_low) / (swing_high - swing_low)) * 100, 1)
     ema_50 = df_htf["close"].ewm(span=50, adjust=False).mean().iloc[-1]
 
-    # FIXED TREND BIAS (No longer stuck on NEUTRAL in normal trends)
     if closed_price >= ema_50:
         bias = "BULLISH (Uptrend)" if range_pct <= 80 else "NEUTRAL (Overbought)"
     else:
@@ -510,3 +509,14 @@ def analyze_market(
                     "sl": buy_sl,
                     "tp1": buy_tp1,
                     "tp2": buy_tp2,
+                    "fvg": buy_source,
+                    "fund_score": str(fund["fund_score"]) + "/100",
+                    "time": datetime.now().strftime("%H:%M:%S")
+                }
+        elif "BEARISH" in bias and dist_sell <= 1.0 and curr_price < sell_sl:
+            decision = {
+                "type": "SELL",
+                "entry": sell_entry,
+                "sl": sell_sl,
+                "tp1": sell_tp1,
+                "headline": "🔴 LOCKED SELL LIMIT ON " + symbol + "
