@@ -287,7 +287,7 @@ def analyze_market(
     range_pct = round(((closed_price - swing_low) / (swing_high - swing_low)) * 100, 1)
     ema_50 = df_htf["close"].ewm(span=50, adjust=False).mean().iloc[-1]
 
-    if closed_price > ema_50 and range_pct < 50:
+   if closed_price > ema_50 and range_pct < 50:
         bias = "BULLISH (Discount Zone)"
     elif closed_price < ema_50 and range_pct > 50:
         bias = "BEARISH (Premium Zone)"
